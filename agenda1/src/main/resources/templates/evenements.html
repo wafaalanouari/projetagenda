@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Mon Agenda & Calendrier Interactif</title>
+    <link rel="stylesheet" th:href="@{/style.css}">
+    <meta name="_csrf" th:content="${_csrf.token}"/>
+    <meta name="_csrf_header" th:content="${_csrf.headerName}"/>
+    <style>
+        body {
+            background: linear-gradient(135deg, #f8bbd0 0%, #f06292 100%);
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 700px;
+            margin: 50px auto;
+            background: #fff0f6;
+            border-radius: 18px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(240,98,146,0.15);
+            text-align: center;
+        }
+        h1 {
+            color: #ad1457;
+            margin-bottom: 20px;
+        }
+        .agenda-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .agenda-header button {
+            background: #ec407a;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            font-size: 1.2em;
+            cursor: pointer;
+        }
+        .agenda-header span {
+            font-size: 1.2em;
+            color: #ad1457;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            width: 14.2%;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            color: #ad1457;
+            font-weight: bold;
+        }
+        td {
+            background: #fff0f6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            position: relative;
+        }
+        td:hover {
+            background: #f06292;
+            color: #fff;
+        }
+        .event-badge {
+            display: block;
+            font-size: 0.8em;
+            color: #ec407a;
+            background: #fff5fa;
+            border-radius: 8px;
+            margin-top: 4px;
+            padding: 2px 4px;
+            white-space: pre-line;
+        }
+        .mini-form {
+            background: #f8bbd0;
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 350px;
+            margin: 0 auto;
+            display: none;
+        }
+        .mini-form input, .mini-form textarea {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border: 1px solid #f06292;
+        }
+        .mini-form button {
+            background: linear-gradient(90deg, #f06292 0%, #ec407a 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            padding: 10px 20px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Mon Agenda</h1>
+        <div class="agenda-header">
+            <button onclick="changeMonth(-1)">&#8592;</button>
+            <span id="monthYear"></span>
+            <button onclick="changeMonth(1)">&#8594;</button>
+        </div>
+        <table id="calendarTable"></table>
+
+        <div class="mini-form" id="eventForm">
+            <h3>Ajouter un événement</h3>
+            <form onsubmit="submitEvent(event)">
+                <input type="hidden" id="selectedDate">
+                <label>Titre :</label>
+                <input type="text" id="eventTitle" required>
+                <label>Description :</label>
+                <textarea id="desc" required></textarea>
+                <label>Date début :</label>
+                <input type="date" id="dateDebut" required>
+                <label>Date fin :</label>
+                <input type="date" id="dateFin" required>
+                <button type="submit">Ajouter</button>
+                <button type="button" onclick="closeForm()" style="background:#ad1457;">Annuler</button>
+            </form>
+        </div>
+    </div>
+    <script th:inline="javascript">
+        let currentDate = new Date();
+        let events = /*[[${evenementsJson}]]*/ {};
+        let ajoutMessage = null;
+        let ajoutDate = "";
+
+        function renderCalendar(date) {
+            const month = date.getMonth();
+            const year = date.getFullYear();
+            const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+            document.getElementById("monthYear").textContent = `${monthNames[month]} ${year}`;
+            const firstDay = new Date(year, month, 1);
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            let startDay = firstDay.getDay();
+            startDay = startDay === 0 ? 7 : startDay;
+            let html = '<tr>';
+            ["Lu", "Ma", "Me", "Je", "Ve", "Sa", "Di"].forEach(day => html += `<th>${day}</th>`);
+            html += '</tr><tr>';
+            for (let i = 1; i < startDay; i++) html += "<td></td>";
+            let day = 1;
+            for (let i = startDay; i <= 7 && day <= daysInMonth; i++, day++) {
+                html += `<td onclick="openForm(${year},${month},${day})">${day}${renderEvent(year,month,day)}${renderAjoutMessage(year,month,day)}</td>`;
+            }
+            html += "</tr>";
+            while (day <= daysInMonth) {
+                html += "<tr>";
+                for (let i = 0; i < 7 && day <= daysInMonth; i++, day++) {
+                    html += `<td onclick="openForm(${year},${month},${day})">${day}${renderEvent(year,month,day)}${renderAjoutMessage(year,month,day)}</td>`;
+                }
+                html += "</tr>";
+            }
+            document.getElementById("calendarTable").innerHTML = html;
+        }
+
+        function renderEvent(year, month, day) {
+            const key = `${year}-${(month+1).toString().padStart(2,'0')}-${day.toString().padStart(2,'0')}`;
+            if (events && events[key]) {
+                return events[key].map(evt =>
+                    `<span class='event-badge'>${evt.titre}<br>${evt.description}<br>${evt.dateDebut} → ${evt.dateFin}</span>`
+                ).join('');
+            }
+            return '';
+        }
+
+        function renderAjoutMessage(year, month, day) {
+            const key = `${year}-${(month+1).toString().padStart(2,'0')}-${day.toString().padStart(2,'0')}`;
+            if (ajoutMessage && ajoutDate === key) {
+                return `<div style="color:green;font-size:0.9em;">
+                    Événement ajouté !<br>
+                    <strong>${ajoutMessage.titre}</strong><br>
+                    ${ajoutMessage.description}
+                </div>`;
+            }
+            return '';
+        }
+
+        function changeMonth(offset) {
+            currentDate.setMonth(currentDate.getMonth() + offset);
+            renderCalendar(currentDate);
+        }
+        function openForm(y, m, d) {
+            document.getElementById("eventForm").style.display = "block";
+            const dateStr = `${y}-${(m+1).toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
+            document.getElementById("selectedDate").value = dateStr;
+            document.getElementById("eventTitle").value = '';
+            document.getElementById("desc").value = '';
+            document.getElementById("dateDebut").value = dateStr;
+            document.getElementById("dateFin").value = dateStr;
+        }
+        function closeForm() {
+            document.getElementById("eventForm").style.display = "none";
+        }
+        function submitEvent(e) {
+            e.preventDefault();
+            const titre = document.getElementById("eventTitle").value;
+            const desc = document.getElementById("desc").value;
+            const dateDebut = document.getElementById("dateDebut").value;
+            const dateFin = document.getElementById("dateFin").value;
+            const selectedDate = document.getElementById("selectedDate").value;
+            const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+            const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+            fetch('/api/evenements/from-calendar', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    [csrfHeader]: csrfToken
+                },
+                body: JSON.stringify({
+                    titre: titre,
+                    description: desc,
+                    dateDebut: dateDebut,
+                    dateFin: dateFin,
+                    calendrierId: 1 // adapte selon ton projet
+                })
+            })
+            .then(response => {
+                if (response.ok) {
+                    ajoutMessage = { titre: titre, description: desc };
+                    ajoutDate = selectedDate;
+                    closeForm();
+                    renderCalendar(currentDate);
+                    setTimeout(() => {
+                        ajoutMessage = null;
+                        ajoutDate = "";
+                        renderCalendar(currentDate);
+                    }, 2500);
+                } else {
+                    response.text().then(msg => alert("Erreur : " + msg));
+                }
+            });
+        }
+        window.onload = () => renderCalendar(currentDate);
+    </script>
+</body>
+</html>
